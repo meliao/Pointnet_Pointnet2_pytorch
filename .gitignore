@@ -112,3 +112,10 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+
+
+# Owen's stuff
+log/
+logs/
+data/

@@ -1,10 +1,14 @@
+"""
+This model is for regression on QM7, QM9 datasets using the PointNet2 architecture
+"""
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from pointnet2_utils import PointNetSetAbstractionMsg, PointNetSetAbstraction
 
 
 class get_model(nn.Module):
-    def __init__(self,num_class,normal_channel=True):
+    def __init__(self, normal_channel=True):
         super(get_model, self).__init__()
         in_channel = 3 if normal_channel else 0
         self.normal_channel = normal_channel
@@ -30,7 +34,7 @@ class get_model(nn.Module):
         self.fc2 = nn.Linear(512, 256)
         self.bn2 = nn.BatchNorm1d(256)
         self.drop2 = nn.Dropout(0.5)
-        self.fc3 = nn.Linear(256, num_class)
+        self.fc3 = nn.Linear(256, 1)
 
     def forward(self, xyz):
         B, _, _ = xyz.shape
@@ -56,9 +60,8 @@ class get_loss(nn.Module):
     def __init__(self):
         super(get_loss, self).__init__()
 
-    def forward(self, pred, target, trans_feat):
-        total_loss = F.nll_loss(pred, target)
+    def forward(self, pred, target):
+        return torch.mean(torch.square(pred - target))
 
-        return total_loss
 
 
