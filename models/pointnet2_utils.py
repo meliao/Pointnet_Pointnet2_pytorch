@@ -70,18 +70,31 @@ def farthest_point_sample(xyz: torch.Tensor, npoint: int) -> torch.Tensor:
     Return:
         centroids: sampled pointcloud index, which has shape [B, npoint]
     """
+    print(xyz)
     device = xyz.device
     B, N, C = xyz.shape
     centroids = torch.zeros(B, npoint, dtype=torch.long).to(device)
     distance = torch.ones(B, N).to(device) * 1e10
-    farthest = torch.randint(0, N, (B,), dtype=torch.long).to(device)
+    
+    # Prevent the initial choice from being a NaNed Out Row
+    n_points_in_cloud = torch.sum(torch.logical_not(torch.isnan(xyz[:, :, 0])), axis=1)
+    rand_draws = torch.rand(size=(B,)).to(device)
+    scaled_rand_draws = torch.mul(n_points_in_cloud, rand_draws)
+    farthest = torch.floor(scaled_rand_draws).type(torch.long)
+    
     batch_indices = torch.arange(B, dtype=torch.long).to(device)
     for i in range(npoint):
+        # Start with the random indices in the 0th column.
         centroids[:, i] = farthest
+        
+        # The centroid thing has one xyz location for each element in the batch
         centroid = xyz[batch_indices, farthest, :].view(B, 1, 3)
+        
+        # Dist finds distance squared between each XYZ point and the centroid
         dist = torch.sum((xyz - centroid) ** 2, -1)
         mask = dist < distance
-        distance[mask] = dist[mask]
+        mask += torch.isnan(dist)
+        distance[mask] = torch.nan_to_num(dist[mask]) # Caps distances at 1e10
         farthest = torch.max(distance, -1)[1]
     return centroids
 
@@ -278,12 +291,16 @@ class PointNetSetAbstractionMsg(nn.Module):
 
             grouped_points = grouped_points.permute(0, 3, 2, 1)  # [B, D, K, S]
 
-            # Pass the grouped points through a convolutional structure. 
+            # Pass the grouped points through a convolutional structure. There are separate convolutional towers for 
+            # each scale i  
             for j in range(len(self.conv_blocks[i])):
                 conv = self.conv_blocks[i][j]
                 bn = self.bn_blocks[i][j]
                 grouped_points =  F.relu(bn(conv(grouped_points)))
+
+            # Pool all of the points in the group by taking the max over all of the points inside the ball
             new_points = torch.max(grouped_points, 2)[0]  # [B, D', S]
+
             new_points_list.append(new_points)
 
         new_xyz = new_xyz.permute(0, 2, 1)

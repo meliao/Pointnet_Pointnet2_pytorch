@@ -25,6 +25,7 @@ class PointCloudMoleculeDataSet(Dataset):
         self.energies = energies
         self.coords_aligned = None
         self.one_hot_point_features = None
+        self.U_matrices = None
 
     def __len__(self) -> int:
         return self.n_samples
@@ -37,6 +38,7 @@ class PointCloudMoleculeDataSet(Dataset):
 
     def align_coords_cart(self) -> None:
         out = np.full_like(self._coords_cart, np.nan)
+        out_U_mats = np.zeros((self.n_samples, 3, 3))
 
         for i in range(self.n_samples):
             n_atoms_i = self.n_atoms[i]
@@ -45,27 +47,25 @@ class PointCloudMoleculeDataSet(Dataset):
             U, _, _ = linalg.svd(coords_i.transpose(), full_matrices=False)
             coords_aligned = np.matmul(U.transpose(), coords_i.transpose()).transpose()
             out[i, :n_atoms_i] = coords_aligned
+            out_U_mats[i] = U
 
         self.coords_aligned = torch.Tensor(out)
+        self.U_matrices = torch.Tensor(out_U_mats)
+        
 
     def charges_to_one_hot_QM7(self) -> None:
-        out = np.zeros((self.n_samples, 
+        out = np.full((self.n_samples, 
                         self._charges.shape[1], 
-                        len(CHARGES_LIST_QM7)))
+                        len(CHARGES_LIST_QM7)), np.nan)
         charges_lst = CHARGES_LIST_QM7
         charges_lst_arr = np.array(CHARGES_LIST_QM7)
         for i in range(self.n_samples):
             n_atoms_i = self.n_atoms[i]
+            out[i, :n_atoms_i] = np.zeros_like(out[i, :n_atoms_i])
             charges_i = self._charges[i, :n_atoms_i]
-#             try:
             col_idxes = [charges_lst.index(x) for x in charges_i]
             for atom_idx, charge_col_idx in enumerate(col_idxes):
                 out[i, atom_idx, charge_col_idx] = 1.
-#             except ValueError:
-#                 print(i)
-#                 print(charges_i)
-#                 print(n_atoms_i)
-#                 print(self.charges[i])
         self.one_hot_point_features = torch.Tensor(out)
 
     def charges_to_one_hot_QM9(self) -> None:
