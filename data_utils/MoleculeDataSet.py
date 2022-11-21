@@ -31,8 +31,8 @@ class PointCloudMoleculeDataSet(Dataset):
         return self.n_samples
 
     def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        coords_out = self.coords_aligned[index, :self.n_atoms[index]]
-        charge_features_out = self.one_hot_point_features[index, :self.n_atoms[index]]
+        coords_out = self.coords_aligned[index]
+        charge_features_out = self.one_hot_point_features[index]
         energies_out = self.energies[index]
         return (coords_out, charge_features_out, energies_out)
 
