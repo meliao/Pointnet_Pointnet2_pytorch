@@ -70,7 +70,7 @@ def farthest_point_sample(xyz: torch.Tensor, npoint: int) -> torch.Tensor:
     Return:
         centroids: sampled pointcloud index, which has shape [B, npoint]
     """
-    print(xyz)
+    # print(xyz)
     device = xyz.device
     B, N, C = xyz.shape
     centroids = torch.zeros(B, npoint, dtype=torch.long).to(device)
@@ -99,48 +99,102 @@ def farthest_point_sample(xyz: torch.Tensor, npoint: int) -> torch.Tensor:
     return centroids
 
 
-def query_ball_point(radius: float, 
-                        nsample: int, 
-                        xyz: torch.Tensor, 
-                        new_xyz: torch.Tensor) -> torch.Tensor:
+def query_ball_point(radius: float,
+                             n_sample: int,
+                             xyz: torch.Tensor,
+                             query_centroids: torch.Tensor,
+                             query_centroid_idxes: torch.Tensor) -> torch.Tensor:
     """
     Input:
         radius (float): local region radius
         nsample (int): max sample number in local region
         xyz (torch.Tensor): all points, [B, N, 3]
-        new_xyz (torch.Tensor): query points, [B, S, 3]
+        query_centroids (torch.Tensor): query points, [B, S, 3]
+        query_centroid_idxes (torch.Tensor): indexes of query points inside xyz [B, S]
     Return:
         group_idx: grouped points index, [B, S, nsample]
     """
     device = xyz.device
     B, N, C = xyz.shape
-    _, S, _ = new_xyz.shape
-    group_idx = torch.arange(N, dtype=torch.long).to(device).view(1, 1, N).repeat([B, S, 1])
-    sqrdists = square_distance(new_xyz, xyz)
-    group_idx[sqrdists > radius ** 2] = N
-    group_idx = group_idx.sort(dim=-1)[0][:, :, :nsample]
-    group_first = group_idx[:, :, 0].view(B, S, 1).repeat([1, 1, nsample])
-    mask = group_idx == N
-    group_idx[mask] = group_first[mask]
-    return group_idx
+    _, S, _ = query_centroids.shape
+    
+    # First, find the pairwise distances between the xyz points and 
+    # the query centroids
+    out_distances = square_distance(xyz, query_centroids)
+    sort_obj = torch.sort(out_distances, dim=1)
+    nearest_indexes = sort_obj[1]
+    sorted_dist = sort_obj[0]
+    
+    # Transpose the nearest_indexes and sorted_dist arrays and only look
+    # at the max number of samples
+    nearest_indexes = nearest_indexes.permute([0, 2, 1])[:, :, :n_sample]
+    sorted_dist = sorted_dist.permute([0, 2, 1])[:, :, :n_sample]
+    
+    # Then, use the indexes of the query centroid points to seed the 
+    # output array
+    out_arr = query_centroid_idxes.view([B, S, 1]).repeat([1, 1, n_sample])
+    
+    # Mask by the radius condition
+    radius_mask = sorted_dist <= radius ** 2
+    
+    # Output the masked indexes
+    out_arr = torch.where(radius_mask, nearest_indexes, out_arr)
+    return out_arr.type(torch.long)
+
+
+def query_ball_point_no_batch(radius: float,
+                             n_sample: int,
+                             xyz: torch.Tensor,
+                             query_centroids: torch.Tensor,
+                             query_centroid_idxes: torch.Tensor) -> torch.Tensor:
+    """
+    """
+    device = xyz.device
+    N, C = xyz.shape
+    S, _ = query_centroids.shape
+    
+    # First, find the pairwise distances between the xyz points and 
+    # the query centroids
+    out_distances = square_distance(xyz.view([1, N, C]), query_centroids.view([1, S, C])).view([N, S])
+    sort_obj = torch.sort(out_distances, dim=0)
+    nearest_indexes = sort_obj[1]
+    sorted_dist = sort_obj[0]
+    
+    # Transpose the nearest_indexes and sorted_dist arrays and only look
+    # at the max number of samples
+    nearest_indexes = nearest_indexes.permute([1, 0])[:, :n_sample]
+    sorted_dist = sorted_dist.permute([1, 0])[:, :n_sample]
+    
+    # Then, use the indexes of the query centroid points to seed the 
+    # output array
+    out_arr = query_centroid_idxes.view([S, 1]).repeat([1, n_sample])
+    
+    # Mask by the radius condition
+    radius_mask = sorted_dist <= radius ** 2
+    
+    # Output the masked indexes
+    out_arr = torch.where(radius_mask, nearest_indexes, out_arr)
+    return out_arr.type(torch.long)
 
 
 def sample_and_group(npoint: int, 
                         radius, 
                         nsample, 
                         xyz: torch.Tensor, 
-                        points: torch.Tensor, 
+                        features: torch.Tensor, 
                         returnfps: bool=False) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Input:
-        npoint (int): The number of points sampled in the farthest point sampling step
-        radius (???): Radii of the multiscale grouping; distances from centroids. Has length n_scales.
+        npoint (int): The number of points sampled in the farthest point 
+            sampling step
+        radius (float): Radii of the multiscale grouping; distances from 
+            centroids. Has length n_scales.
         nsample:
         xyz: input points position data, [B, N, C] where we expect C=3
-        points: input points data, [B, N, D]
+        features: input points data, [B, N, D]
     Return:
-        new_xyz: sampled points position data, [B, npoint, nsample, 3]
-        new_points: sampled points data, [B, npoint, nsample, 3+D]
+        new_xyz: query centroid positions, [B, npoint, 3]
+        new_features: sampled group features, [B, npoint, nsample, 3+D]
     """
     B, N, C = xyz.shape
     S = npoint
@@ -150,19 +204,19 @@ def sample_and_group(npoint: int,
     new_xyz = index_points(xyz, fps_idx) # [B, npoint, C]
 
     # Then, find points in each ball around the centroids in the Multiscale Grouping step
-    idx = query_ball_point(radius, nsample, xyz, new_xyz)
+    idx = query_ball_point(radius, nsample, xyz, new_xyz, fps_idx) # [B, npoint, nsample]
     grouped_xyz = index_points(xyz, idx) # [B, npoint, nsample, C]
     grouped_xyz_norm = grouped_xyz - new_xyz.view(B, S, 1, C)
 
-    if points is not None:
-        grouped_points = index_points(points, idx)
-        new_points = torch.cat([grouped_xyz_norm, grouped_points], dim=-1) # [B, npoint, nsample, C+D]
+    if features is not None:
+        grouped_features = index_points(features, idx) # [B, npoint, nsample, D]
+        new_features = torch.cat([grouped_xyz_norm, grouped_features], dim=-1) # [B, npoint, nsample, C+D]
     else:
-        new_points = grouped_xyz_norm
+        new_features = grouped_xyz_norm
     if returnfps:
-        return new_xyz, new_points, grouped_xyz, fps_idx
+        return new_xyz, new_features, grouped_xyz, fps_idx
     else:
-        return new_xyz, new_points
+        return new_xyz, new_features
 
 
 def sample_and_group_all(xyz, points):
@@ -186,7 +240,13 @@ def sample_and_group_all(xyz, points):
 
 
 class PointNetSetAbstraction(nn.Module):
-    def __init__(self, npoint, radius, nsample, in_channel, mlp, group_all):
+    def __init__(self, 
+                    npoint: int, 
+                    radius: float, 
+                    nsample: int, 
+                    in_channel: int, 
+                    mlp: List[int], 
+                    group_all: bool):
         super(PointNetSetAbstraction, self).__init__()
         self.npoint = npoint
         self.radius = radius
@@ -200,18 +260,20 @@ class PointNetSetAbstraction(nn.Module):
             last_channel = out_channel
         self.group_all = group_all
 
-    def forward(self, xyz, points):
+    def forward(self, 
+                xyz: torch.Tensor, 
+                points: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Input:
-            xyz: input points position data, [B, C, N]
-            points: input points data, [B, D, N]
+            xyz: input points position data, [B, N, C]
+            points: input points data, [B, N, D]
         Return:
-            new_xyz: sampled points position data, [B, C, S]
-            new_points_concat: sample points feature data, [B, D', S]
+            new_xyz: sampled points position data, [B, S, C]
+            new_points_concat: sample points feature data, [B, S, D']
         """
-        xyz = xyz.permute(0, 2, 1)
-        if points is not None:
-            points = points.permute(0, 2, 1)
+        # xyz = xyz.permute(0, 2, 1)
+        # if points is not None:
+        #     points = points.permute(0, 2, 1)
 
         if self.group_all:
             new_xyz, new_points = sample_and_group_all(xyz, points)
@@ -224,8 +286,8 @@ class PointNetSetAbstraction(nn.Module):
             bn = self.mlp_bns[i]
             new_points =  F.relu(bn(conv(new_points)))
 
-        new_points = torch.max(new_points, 2)[0]
-        new_xyz = new_xyz.permute(0, 2, 1)
+        new_points = torch.max(new_points, 2)[0].permute(0, 2, 1)
+        # new_xyz = new_xyz.permute(0, 2, 1)
         return new_xyz, new_points
 
 
@@ -253,59 +315,70 @@ class PointNetSetAbstractionMsg(nn.Module):
             self.conv_blocks.append(convs)
             self.bn_blocks.append(bns)
 
-    def forward(self, xyz: torch.Tensor, points: torch.Tensor) -> torch.Tensor:
+    def forward(self, xyz: torch.Tensor, point_features: torch.Tensor) -> torch.Tensor:
         """
         Input:
-            xyz: input points position data, [B, C, N]
-            points: input points data, [B, D, N]
+            xyz: input points position data, [B, N, C]
+            point_features: input points data, [B, N, D]
         Return:
-            new_xyz: sampled points position data, [B, C, S]
-            new_points_concat: sample points feature data, [B, D', S]
+            new_xyz: sampled points position data, [B, S, C]
+            new_point_features: sample points feature data, [B, S, D']
         """
-        xyz = xyz.permute(0, 2, 1)
-        if points is not None:
-            points = points.permute(0, 2, 1)
+        # xyz = xyz.permute(0, 2, 1)
+        # if points is not None:
+        #     points = points.permute(0, 2, 1)
 
         B, N, C = xyz.shape
         S = self.npoint
 
         # Use farthest point sampling to identify npoint centriods
-        new_xyz = index_points(xyz, farthest_point_sample(xyz, S)) # Shape [B, S, C]
+        centroid_idx = farthest_point_sample(xyz, S)
+        new_xyz = index_points(xyz, centroid_idx) # Shape [B, S, C]
 
         # Perform the Multiscale Grouping operation
         new_points_list = []
         for i, radius in enumerate(self.radius_list):
 
-            # For a given scale (radius and max # points), find points in ball around each centroid
+            # For a given scale (radius and max # points), find points in ball 
+            # around each centroid
             K = self.nsample_list[i]
-            group_idx = query_ball_point(radius, K, xyz, new_xyz) # Shape [B, S, K] (or may be less than K ???)
-            grouped_xyz = index_points(xyz, group_idx) # Shape [B, S, K, C] ???
+            group_idx = query_ball_point(radius, 
+                                        K, 
+                                        xyz, 
+                                        new_xyz, 
+                                        centroid_idx) # Shape [B, S, K] 
+            grouped_xyz = index_points(xyz, group_idx) # Shape [B, S, K, C]
+            # print("GROUPED_XYZ SHAPE", grouped_xyz.shape)
             grouped_xyz -= new_xyz.view(B, S, 1, C)
 
             # Tack on the point features if necessary
-            if points is not None:
-                grouped_points = index_points(points, group_idx)
-                grouped_points = torch.cat([grouped_points, grouped_xyz], dim=-1)
+            if point_features is not None:
+                grouped_points = index_points(point_features, 
+                                                group_idx) # Shape [B, S, K, D]
+                grouped_points = torch.cat([grouped_points, grouped_xyz], 
+                                            dim=-1) # Shape [B, S, K, D + C]
             else:
                 grouped_points = grouped_xyz
 
-            grouped_points = grouped_points.permute(0, 3, 2, 1)  # [B, D, K, S]
+            grouped_points = grouped_points.permute(0, 3, 2, 1) # [B, D+C, K, S]
 
-            # Pass the grouped points through a convolutional structure. There are separate convolutional towers for 
-            # each scale i  
+            # Pass the grouped points through a convolutional structure. 
+            # There are separate convolutional towers for each scale i  
             for j in range(len(self.conv_blocks[i])):
                 conv = self.conv_blocks[i][j]
                 bn = self.bn_blocks[i][j]
                 grouped_points =  F.relu(bn(conv(grouped_points)))
 
-            # Pool all of the points in the group by taking the max over all of the points inside the ball
+            # Pool all of the points in the group by taking the max over all 
+            # of the points inside the ball
             new_points = torch.max(grouped_points, 2)[0]  # [B, D', S]
 
             new_points_list.append(new_points)
 
-        new_xyz = new_xyz.permute(0, 2, 1)
-        new_points_concat = torch.cat(new_points_list, dim=1)
-        return new_xyz, new_points_concat
+        # new_xyz = new_xyz.permute(0, 2, 1)
+        new_point_features = torch.cat(new_points_list, dim=1).permute(0, 2, 1)
+
+        return new_xyz, new_point_features
 
 
 class PointNetFeaturePropagation(nn.Module):

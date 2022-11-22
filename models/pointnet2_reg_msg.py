@@ -1,6 +1,7 @@
 """
 This model is for regression on QM7, QM9 datasets using the PointNet2 architecture
 """
+from typing import List
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -8,18 +9,25 @@ from pointnet2_utils import PointNetSetAbstractionMsg, PointNetSetAbstraction
 
 
 class get_model(nn.Module):
-    def __init__(self, normal_channel=True):
+    def __init__(self, 
+                    n_centroids_1: int,
+                    msg_radii_1: List[float],
+                    msg_nsample_1: List[int],
+                    n_centroids_2: int,
+                    msg_radii_2: List[float],
+                    msg_nsample_2: List[int],
+                    in_channel: int):
         super(get_model, self).__init__()
-        in_channel = 3 if normal_channel else 0
-        self.normal_channel = normal_channel
-        self.sa1 = PointNetSetAbstractionMsg(512, 
-                                                [0.1, 0.2, 0.4], 
-                                                [16, 32, 128], 
+        # in_channel = 3 if normal_channel else 0
+        self.normal_channel = True
+        self.sa1 = PointNetSetAbstractionMsg(n_centroids_1, 
+                                                msg_radii_1, 
+                                                msg_nsample_1, 
                                                 in_channel,
                                                 [[32, 32, 64], [64, 64, 128], [64, 96, 128]])
-        self.sa2 = PointNetSetAbstractionMsg(128, 
-                                                [0.2, 0.4, 0.8], 
-                                                [32, 64, 128], 
+        self.sa2 = PointNetSetAbstractionMsg(n_centroids_2, 
+                                                msg_radii_2, 
+                                                msg_nsample_2, 
                                                 320,
                                                 [[64, 64, 128], [128, 128, 256], [128, 128, 256]])
         self.sa3 = PointNetSetAbstraction(None, 
