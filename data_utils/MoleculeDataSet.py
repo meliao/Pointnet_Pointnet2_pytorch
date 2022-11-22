@@ -19,7 +19,7 @@ class PointCloudMoleculeDataSet(Dataset):
         # print(charges.shape)
         self._coords_cart = coords_cart
         self._charges = charges
-        self.n_samples = self._coords_cart.shape[0]
+        self.n_samples, self.max_n_atoms, _ = self._coords_cart.shape
         self.n_atoms = np.sum(charges != 0, axis=1)
         # print(self.n_atoms.shape)
         self.energies = energies
@@ -31,10 +31,23 @@ class PointCloudMoleculeDataSet(Dataset):
         return self.n_samples
 
     def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Returms a tuple of torch.Tensors.
+
+        points_and_features has shape [self.max_n_atoms, 3 + 5]
+        points_and_features[:, :3] is xyz coordinates of the atoms.
+        points_and_features[:, 3:] is one-hot element-type encoding.
+
+        U_matrix is the 3x3 left singular values of points_and_features[:, 3:].T
+
+        energies_out is the label
+        """
         coords_out = self.coords_aligned[index]
         charge_features_out = self.one_hot_point_features[index]
+        points_and_features_out = torch.cat([coords_out, charge_features_out], dim=-1)
+        U_matrix = self.U_matrices[index]
         energies_out = self.energies[index]
-        return (coords_out, charge_features_out, energies_out)
+        return (points_and_features_out, U_matrix, energies_out)
 
     def align_coords_cart(self) -> None:
         out = np.full_like(self._coords_cart, np.nan)

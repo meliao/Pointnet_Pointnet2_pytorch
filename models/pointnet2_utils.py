@@ -70,7 +70,7 @@ def farthest_point_sample(xyz: torch.Tensor, npoint: int) -> torch.Tensor:
     Return:
         centroids: sampled pointcloud index, which has shape [B, npoint]
     """
-    # print(xyz)
+    # print(xyz.shape)
     device = xyz.device
     B, N, C = xyz.shape
     centroids = torch.zeros(B, npoint, dtype=torch.long).to(device)
@@ -114,6 +114,7 @@ def query_ball_point(radius: float,
     Return:
         group_idx: grouped points index, [B, S, nsample]
     """
+    print(f"QBP: xyz shape: {xyz.shape}, query_centroids shape: {query_centroids.shape}, query_centroid_idxes.shape: {query_centroid_idxes.shape}")
     device = xyz.device
     B, N, C = xyz.shape
     _, S, _ = query_centroids.shape

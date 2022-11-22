@@ -1,11 +1,9 @@
 # import unittest
 import numpy as np
-from data_utils.MoleculeDataSet import PointCloudMoleculeDataSet, CHARGES_LIST_QM7
+from data_utils.MoleculeDataSet import PointCloudMoleculeDataSet, CHARGES_LIST_QM7, load_and_align_QM7
 
 
 class TestMoleculeDataSet:
-
-
     def test_charges_to_one_hot(self) -> None:
     
         coords = np.full((2, 5, 3), np.nan)
@@ -32,6 +30,28 @@ class TestMoleculeDataSet:
         assert np.allclose(x.one_hot_point_features, 
                         expected_one_hot_encoding, equal_nan=True)
     
+
+class TestIntegrationQM7Data:
+    def test_data_loading(self) -> None:
+        DATA_FP = '/Users/owen/projects/invariant-random-features-code/data/qm7/qm7.mat'
+        n_train = 100
+        n_test = 100
+        train_dset, val_dset, test_dset = load_and_align_QM7(fp=DATA_FP,
+                                                        n_train=n_train,
+                                                        n_test=n_test,
+                                                        validation_set_fraction=0.1)
+
+        assert len(train_dset) == 90
+        assert len(val_dset) == 10
+        assert len(test_dset) == 100
+
+        coords_and_features, U_matrix, energy = train_dset[23]
+
+        assert list(coords_and_features.shape) == [train_dset.max_n_atoms, 5 + 3]
+        assert list(U_matrix.shape) == [3, 3]
+
+
+
 
 # if __name__ == "__main__":
 #     unittest.main()

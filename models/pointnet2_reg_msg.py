@@ -44,29 +44,35 @@ class get_model(nn.Module):
         self.drop2 = nn.Dropout(0.5)
         self.fc3 = nn.Linear(256, 1)
 
-    def forward(self, xyz):
+    def forward(self, xyz: torch.Tensor) -> torch.Tensor:
+        """Forward pass of the regression network
+
+        Args:
+            xyz (torch.Tensor): has shape (batch_size, max_n_atoms, 3 + feature_dim)
+
+        Returns:
+            torch.Tensor: size [batch_size,]
+        """
         B, _, _ = xyz.shape
-        if self.normal_channel:
-            norm = xyz[:, 3:, :] # Norm are the features in the 4th and on columns
-            xyz = xyz[:, :3, :] # XYZ are the cartesian coordinates
-        else:
-            norm = None
-        l1_xyz, l1_points = self.sa1(xyz, norm)
+        in_xyz = xyz[:, :, :3] # Norm are the features in the 4th and on columns
+        in_features = xyz[:, :, 3:] # XYZ are the cartesian coordinates
+
+        l1_xyz, l1_features = self.sa1(in_xyz, in_features)
         if torch.any(torch.isnan(l1_xyz)):
             raise ValueError("l1_xyz contains NaNs")
         
-        if torch.any(torch.isnan(l1_points)):
-            raise ValueError("l1_points contains NaNs")
-        l2_xyz, l2_points = self.sa2(l1_xyz, l1_points)
-        l3_xyz, l3_points = self.sa3(l2_xyz, l2_points)
-        x = l3_points.view(B, 1024)
+        if torch.any(torch.isnan(l1_features)):
+            raise ValueError("l1_features contains NaNs")
+        l2_xyz, l2_features = self.sa2(l1_xyz, l1_features)
+        l3_xyz, l3_features = self.sa3(l2_xyz, l2_features)
+        x = l3_features.view(B, 1024)
         x = self.drop1(F.relu(self.bn1(self.fc1(x))))
         x = self.drop2(F.relu(self.bn2(self.fc2(x))))
         x = self.fc3(x)
         x = F.log_softmax(x, -1)
 
 
-        return x,l3_points
+        return x
 
 
 class get_loss(nn.Module):
@@ -74,7 +80,7 @@ class get_loss(nn.Module):
         super(get_loss, self).__init__()
 
     def forward(self, pred, target):
-        return torch.mean(torch.square(pred - target))
+        return torch.sum(torch.square(pred - target))
 
 
 
