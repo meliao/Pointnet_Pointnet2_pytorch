@@ -31,6 +31,7 @@ def parse_args():
     # parser.add_argument('--use_cpu', action='store_true', default=False, help='use cpu mode')
     # parser.add_argument('--gpu', type=str, default='0', help='specify gpu device')
     parser.add_argument('--data_fp', help='Where to find the QM7 dataset file')
+    parser.add_argument('--results_fp', help='Where to store a txt file of results')
     parser.add_argument('--n_train', type=int)
     parser.add_argument('--n_test', type=int)
     parser.add_argument('--batch_size', type=int, default=24, help='batch size in training')
@@ -53,33 +54,56 @@ def inplace_relu(m):
         m.inplace=True
 
 
-def test(model, loader, num_class=40):
-    mean_correct = []
-    class_acc = np.zeros((num_class, 3))
-    classifier = model.eval()
+def write_result_to_file(fp: str, missing_str: str='', **trial) -> None:
+    """Write a line to a tab-separated file saving the results of a single
+        trial.
+    Parameters
+    ----------
+    fp : str
+        Output filepath
+    missing_str : str
+        (Optional) What to print in the case of a missing trial value
+    **trial : dict
+        One trial result. Keys will become the file header
+    Returns
+    -------
+    None
+    """
+    header_lst = list(trial.keys())
+    header_lst.sort()
+    if not os.path.isfile(fp):
+        header_line = "\t".join(header_lst) + "\n"
+        with open(fp, 'w') as f:
+            f.write(header_line)
+    trial_lst = [str(trial.get(i, missing_str)) for i in header_lst]
+    trial_line = "\t".join(trial_lst) + "\n"
+    with open(fp, 'a') as f:
+        f.write(trial_line)
 
-    for j, (points, target) in tqdm(enumerate(loader), total=len(loader)):
 
-        if not args.use_cpu:
-            points, target = points.cuda(), target.cuda()
+def test(model: torch.nn.Module, loader: torch.utils.data.DataLoader, loss: torch.nn.Module) -> torch.Tensor:
 
-        points = points.transpose(2, 1)
-        pred, _ = classifier(points)
-        pred_choice = pred.data.max(1)[1]
 
-        for cat in np.unique(target.cpu()):
-            classacc = pred_choice[target == cat].eq(target[target == cat].long().data).cpu().sum()
-            class_acc[cat, 0] += classacc.item() / float(points[target == cat].size()[0])
-            class_acc[cat, 1] += 1
+    # device = model.device
+    device = torch.device('cpu')
+    model_eval = model.eval()
 
-        correct = pred_choice.eq(target.long().data).cpu().sum()
-        mean_correct.append(correct.item() / float(points.size()[0]))
+    all_preds = []
+    all_targets = []
+    for (points_and_features, U_matrices, target) in loader:
 
-    class_acc[:, 2] = class_acc[:, 0] / class_acc[:, 1]
-    class_acc = np.mean(class_acc[:, 2])
-    instance_acc = np.mean(mean_correct)
+        points_and_features = points_and_features.to(device)
+        U_matrices = U_matrices.to(device)
+        # target = target.to(device)
+        preds = model_eval(points_and_features, U_matrices)
 
-    return instance_acc, class_acc
+        all_preds.append(preds.cpu())
+        all_targets.append(target)
+
+    all_preds = torch.cat(all_preds).flatten()
+    all_targets = torch.cat(all_targets).flatten()
+
+    return loss(all_preds, all_targets)
 
 
 def main(args):
@@ -122,6 +146,9 @@ def main(args):
                                                             n_train=args.n_train,
                                                             n_test=args.n_test,
                                                             validation_set_fraction=0.1)
+    n_train = len(train_dset)
+    n_val = len(val_dset)
+    n_test = len(test_dset)
 
     # train_dataset = ModelNetDataLoader(root=data_path, args=args, split='train', process_data=args.process_data)
     # test_dataset = ModelNetDataLoader(root=data_path, args=args, split='test', process_data=args.process_data)
@@ -140,8 +167,16 @@ def main(args):
     shutil.copy('./models/pointnet2_reg_msg.py', str(exp_dir))
     shutil.copy('models/pointnet2_utils.py', str(exp_dir))
     shutil.copy('./train_regression_QM7.py', str(exp_dir))
+    results_logging_fp = os.path.join(exp_dir, 'epoch_results.txt')
 
-    classifier = model.get_model(normal_channel=args.use_normals)
+    classifier = model.get_model(n_centroids_1=8,
+                                    msg_radii_1=[2., 4., 8.],
+                                    msg_nsample_1=[4, 8, 16],
+                                    n_centroids_2=4,
+                                    msg_radii_2=[2., 4., 8.],
+                                    msg_nsample_2=[2, 4, 8],
+                                    in_channels=5,
+                                    out_channels=128)
     criterion = model.get_loss()
     classifier.apply(inplace_relu)
 
@@ -174,22 +209,23 @@ def main(args):
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.7)
     global_epoch = 0
     global_step = 0
-    best_instance_acc = 0.0
-    best_class_acc = 0.0
+    best_val_MSE = torch.inf
+    # best_class_acc = 0.0
 
     '''TRANING'''
     logger.info('Start training...')
     for epoch in range(start_epoch, args.epoch):
         log_string('Epoch %d (%d/%s):' % (global_epoch + 1, epoch + 1, args.epoch))
-        mean_correct = []
+        # mean_correct = []
         classifier = classifier.train()
 
+        training_losses = []
         # for batch_id, (points, features, target) in tqdm(enumerate(train_loader, 0), total=len(train_loader), smoothing=0.9):
-        for batch_id, (points, features, target) in enumerate(train_loader):
+        for batch_id, (points_and_features, U_matrices, target) in enumerate(train_loader):
 
-            print(f"Points has shape {points.shape}")
-            print(f"Features has shape {features.shape}")
-            print(f"Target has shape {target.shape}")
+            # print(f"Points has shape {points.shape}")
+            # print(f"Features has shape {features.shape}")
+            # print(f"Target has shape {target.shape}")
 
             optimizer.zero_grad()
 
@@ -198,51 +234,70 @@ def main(args):
             # points[:, :, 0:3] = provider.random_scale_point_cloud(points[:, :, 0:3])
             # points[:, :, 0:3] = provider.shift_point_cloud(points[:, :, 0:3])
             # points = torch.Tensor(points)
-            points = points.transpose(2, 1)
 
             if bool_use_CUDA:
-                points, target = points.cuda(), target.cuda()
+                points_and_features = points_and_features.cuda()
+                U_matrices = U_matrices.cuda()
+                target = target.cuda()
 
-            pred = classifier(points)
+            pred = classifier(points_and_features, U_matrices)
             loss = criterion(pred, target)
-            pred_choice = pred.data.max(1)[1]
-
-            correct = pred_choice.eq(target.long().data).cpu().sum()
-            mean_correct.append(correct.item() / float(points.size()[0]))
+            training_losses.append(loss.cpu().data)
             loss.backward()
             optimizer.step()
             global_step += 1
 
-        train_instance_acc = np.mean(mean_correct)
-        log_string('Train MSE: %f' % train_instance_acc)
+        train_MSE_for_epoch = np.mean(training_losses)
+
+        # train_instance_acc = np.mean(mean_correct)
+        # log_string('Train MSE: %f' % train_MSE_for_epoch)
         scheduler.step()
 
         with torch.no_grad():
-            instance_acc, class_acc = test(classifier.eval(), testDataLoader, num_class=num_class)
+            val_MSE = test(classifier.eval(), val_loader, criterion)
+            log_string('Train MSE: %f. Val MSE: %f' % (train_MSE_for_epoch, val_MSE))
+            # instance_acc, class_acc = test(classifier.eval(), testDataLoader, num_class=num_class)
 
-            if (instance_acc >= best_instance_acc):
-                best_instance_acc = instance_acc
+            test_MSE = test(classifier.eval(), test_loader, criterion)
+
+
+
+            if (val_MSE <= best_val_MSE):
+                log_string('New best val MSE')
+                best_val_MSE = val_MSE
                 best_epoch = epoch + 1
 
-            if (class_acc >= best_class_acc):
-                best_class_acc = class_acc
-            log_string('Test Instance Accuracy: %f, Class Accuracy: %f' % (instance_acc, class_acc))
-            log_string('Best Instance Accuracy: %f, Class Accuracy: %f' % (best_instance_acc, best_class_acc))
+                log_string('Test MSE: %f' % test_MSE)
 
-            if (instance_acc >= best_instance_acc):
-                logger.info('Save model...')
+            # log_string('Test Instance Accuracy: %f, Class Accuracy: %f' % (instance_acc, class_acc))
+            # log_string('Best Instance Accuracy: %f, Class Accuracy: %f' % (best_instance_acc, best_class_acc))
+
+            # if (instance_acc >= best_instance_acc):
+                logger.info('Saving model...')
                 savepath = str(checkpoints_dir) + '/best_model.pth'
-                log_string('Saving at %s' % savepath)
+                # log_string('Saving at %s' % savepath)
                 state = {
                     'epoch': best_epoch,
-                    'instance_acc': instance_acc,
-                    'class_acc': class_acc,
+                    'train_MSE': train_MSE_for_epoch,
+                    'test_MSE': test_MSE,
+                    'val_MSE': val_MSE,
                     'model_state_dict': classifier.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
                 }
                 torch.save(state, savepath)
             global_epoch += 1
 
+            logging_dd = {
+                'train_MSE': train_MSE_for_epoch.item(),
+                'test_MSE': test_MSE.item(),
+                'val_MSE': val_MSE.item(),
+                'epoch': epoch,
+                'n_train': n_train,
+                'n_val': n_val,
+                'n_test': n_test
+            }
+
+            write_result_to_file(results_logging_fp, **logging_dd)
     logger.info('End of training...')
 
 

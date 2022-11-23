@@ -23,7 +23,7 @@ class PointCloudMoleculeDataSet(Dataset):
         self.n_atoms = np.sum(charges != 0, axis=1)
         # print(self.n_atoms.shape)
         self.energies = energies
-        self.coords_aligned = None
+        self.coords_centered = None
         self.one_hot_point_features = None
         self.U_matrices = None
 
@@ -42,7 +42,7 @@ class PointCloudMoleculeDataSet(Dataset):
 
         energies_out is the label
         """
-        coords_out = self.coords_aligned[index]
+        coords_out = self.coords_centered[index]
         charge_features_out = self.one_hot_point_features[index]
         points_and_features_out = torch.cat([coords_out, charge_features_out], dim=-1)
         U_matrix = self.U_matrices[index]
@@ -56,13 +56,13 @@ class PointCloudMoleculeDataSet(Dataset):
         for i in range(self.n_samples):
             n_atoms_i = self.n_atoms[i]
             coords_i = self._coords_cart[i, :n_atoms_i]
-            coords_i = coords_i - np.mean(coords_i, axis=0)
-            U, _, _ = linalg.svd(coords_i.transpose(), full_matrices=False)
-            coords_aligned = np.matmul(U.transpose(), coords_i.transpose()).transpose()
-            out[i, :n_atoms_i] = coords_aligned
+            coords_i_centered = coords_i - np.mean(coords_i, axis=0)
+            U, _, _ = linalg.svd(coords_i_centered.transpose(), full_matrices=False)
+            # coords_aligned = np.matmul(U.transpose(), coords_i.transpose()).transpose()
+            out[i, :n_atoms_i] = coords_i_centered
             out_U_mats[i] = U
 
-        self.coords_aligned = torch.Tensor(out)
+        self.coords_centered = torch.Tensor(out)
         self.U_matrices = torch.Tensor(out_U_mats)
         
 
