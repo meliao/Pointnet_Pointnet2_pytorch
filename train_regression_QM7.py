@@ -169,7 +169,7 @@ def main(args):
     shutil.copy('./train_regression_QM7.py', str(exp_dir))
     results_logging_fp = os.path.join(exp_dir, 'epoch_results.txt')
 
-    classifier = model.get_model(n_centroids_1=8,
+    classifier = model.get_model(n_centroids_1=10,
                                     msg_radii_1=[2., 4., 8.],
                                     msg_nsample_1=[4, 8, 16],
                                     n_centroids_2=4,
