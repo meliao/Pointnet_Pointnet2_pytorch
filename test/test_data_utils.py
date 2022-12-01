@@ -1,7 +1,11 @@
 # import unittest
+import os
 import numpy as np
 from data_utils.MoleculeDataSet import PointCloudMoleculeDataSet, CHARGES_LIST_QM7, load_and_align_QM7
 
+
+home_dir = os.path.expanduser('~')
+QM7_FP = os.path.join(home_dir, 'projects/invariant-random-features-code/data/qm7/qm7.mat')
 
 class TestMoleculeDataSet:
     def test_charges_to_one_hot(self) -> None:
@@ -33,10 +37,10 @@ class TestMoleculeDataSet:
 
 class TestIntegrationQM7Data:
     def test_data_loading(self) -> None:
-        DATA_FP = '/Users/owen/projects/invariant-random-features-code/data/qm7/qm7.mat'
+        # DATA_FP = '/Users/owen/projects/invariant-random-features-code/data/qm7/qm7.mat'
         n_train = 100
         n_test = 100
-        train_dset, val_dset, test_dset = load_and_align_QM7(fp=DATA_FP,
+        train_dset, val_dset, test_dset = load_and_align_QM7(fp=QM7_FP,
                                                         n_train=n_train,
                                                         n_test=n_test,
                                                         validation_set_fraction=0.1)

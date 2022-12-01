@@ -10,17 +10,23 @@ CHARGES_LIST_QM9 = [1, 6, 7, 8, 9]
 CHARGES_LIST_QM7 = [1, 6, 7, 8, 16]
 
 class PointCloudMoleculeDataSet(Dataset):
-    def __init__(self, coords_cart: np.ndarray, charges: np.ndarray, energies: np.ndarray) -> None:
+    def __init__(self, 
+                    coords_cart: np.ndarray, 
+                    charges: np.ndarray, 
+                    energies: np.ndarray,
+                    idxes: np.ndarray) -> None:
         """
         coords_cart has shape (n_samples, max_n_atoms, 3)
         charges has shape (n_samples, max_n_atoms)
         energies has shape (n_samples,)
+        idxes has shape (n_samples,)
         """
         # print(charges.shape)
         self._coords_cart = coords_cart
         self._charges = charges
         self.n_samples, self.max_n_atoms, _ = self._coords_cart.shape
         self.n_atoms = np.sum(charges != 0, axis=1)
+        self.idxes = idxes
         # print(self.n_atoms.shape)
         self.energies = energies
         self.coords_centered = None
@@ -88,7 +94,10 @@ class PointCloudMoleculeDataSet(Dataset):
 def load_and_align_QM7(fp: str,
                         n_train: int,
                         n_test: int, 
-                        validation_set_fraction: float) -> Tuple[PointCloudMoleculeDataSet, 
+                        validation_set_fraction: float,
+                        train_idxes: np.ndarray=None,
+                        val_idxes: np.ndarray=None,
+                        test_idxes: np.ndarray=None) -> Tuple[PointCloudMoleculeDataSet, 
                                                                     PointCloudMoleculeDataSet, 
                                                                     PointCloudMoleculeDataSet]:
     """Loads the QM7 dataset and prepares 3 PointCloudMoleculeDataSet objects
@@ -111,19 +120,25 @@ def load_and_align_QM7(fp: str,
 
     # logging.info("Releasing train, validation, test datasets of size %i, %i, %i", n_train_eff, n_validation, n_test)
 
-    perm = np.random.permutation(energies_all.shape[0])
-
-    train_idxes = perm[:n_train_eff]
-    val_idxes = perm[n_train_eff: n_train]
-    test_idxes = perm[n_train: n_train + n_test]
+    if train_idxes is None:
+        perm = np.random.permutation(energies_all.shape[0])
+        train_idxes = perm[:n_train_eff]
+        val_idxes = perm[n_train_eff: n_train]
+        test_idxes = perm[n_train: n_train + n_test]
+    else: 
+        assert train_idxes.shape[0] == n_train_eff
+        assert test_idxes.shape[0] == n_test
 
     assert np.intersect1d(train_idxes, val_idxes).shape[0] == 0
     assert np.intersect1d(train_idxes, test_idxes).shape[0] == 0
     assert np.intersect1d(test_idxes, val_idxes).shape[0] == 0
 
-    train_dset = PointCloudMoleculeDataSet(q['R'][train_idxes], q['Z'][train_idxes], energies_all[train_idxes])
-    val_dset = PointCloudMoleculeDataSet(q['R'][val_idxes], q['Z'][val_idxes], energies_all[val_idxes])
-    test_dset = PointCloudMoleculeDataSet(q['R'][test_idxes], q['Z'][test_idxes], energies_all[test_idxes])
+    train_dset = PointCloudMoleculeDataSet(q['R'][train_idxes], q['Z'][train_idxes], energies_all[train_idxes], train_idxes)
+    val_dset = PointCloudMoleculeDataSet(q['R'][val_idxes], q['Z'][val_idxes], energies_all[val_idxes], val_idxes)
+    test_dset = PointCloudMoleculeDataSet(q['R'][test_idxes], 
+                                            q['Z'][test_idxes], 
+                                            energies_all[test_idxes], 
+                                            test_idxes)
 
 
     train_dset.align_coords_cart()

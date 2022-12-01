@@ -17,6 +17,7 @@ import argparse
 from pathlib import Path
 # from tqdm import tqdm
 from data_utils.MoleculeDataSet import PointCloudMoleculeDataSet, load_and_align_QM7
+from data_utils.plotting_utils import make_training_progress_plot, make_predictions_plot
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR
@@ -28,23 +29,32 @@ sys.path.append(os.path.join(ROOT_DIR, 'models'))
 def parse_args():
     '''PARAMETERS'''
     parser = argparse.ArgumentParser('training')
-    # parser.add_argument('--use_cpu', action='store_true', default=False, help='use cpu mode')
-    # parser.add_argument('--gpu', type=str, default='0', help='specify gpu device')
+
+    # Setting up filepaths
     parser.add_argument('--data_fp', help='Where to find the QM7 dataset file')
     parser.add_argument('--results_fp', help='Where to store a txt file of results')
+    parser.add_argument('--metadata_record_fp', help='Where to store a txt file of all of the arguments')
+    parser.add_argument('--log_dir', type=str, default=None, help='experiment root')
+    parser.add_argument('--base_log_dir', type=str, default='./log/')
+
+    # Training/testing set sizes
     parser.add_argument('--n_train', type=int)
     parser.add_argument('--n_test', type=int)
+
+    # Optimization arguments
     parser.add_argument('--batch_size', type=int, default=24, help='batch size in training')
-    parser.add_argument('--num_category', default=40, type=int, choices=[10, 40],  help='training on ModelNet10/40')
     parser.add_argument('--epoch', default=200, type=int, help='number of epoch in training')
     parser.add_argument('--learning_rate', default=0.001, type=float, help='learning rate in training')
-    parser.add_argument('--num_point', type=int, default=1024, help='Point Number')
     parser.add_argument('--optimizer', type=str, default='Adam', help='optimizer for training')
-    parser.add_argument('--log_dir', type=str, default=None, help='experiment root')
     parser.add_argument('--decay_rate', type=float, default=1e-4, help='decay rate')
-    parser.add_argument('--use_normals', action='store_true', default=False, help='use normals')
-    parser.add_argument('--process_data', action='store_true', default=False, help='save data offline')
-    parser.add_argument('--use_uniform_sample', action='store_true', default=False, help='use uniform sampiling')
+
+    # Architecture arguments
+    parser.add_argument('--n_centroids_1', type=int, default=10)
+    parser.add_argument('--msg_radii_1', type=float, nargs='+', default=[2., 4., 8.])
+    parser.add_argument('--msg_nsample_1', type=int, nargs='+', default=[4, 8, 16])
+    parser.add_argument('--n_centroids_2', type=int, default=4)
+    parser.add_argument('--msg_radii_2', type=float, nargs='+', default=[2., 4., 8.])
+    parser.add_argument('--msg_nsample_2', type=int, nargs='+', default=[2, 4, 8])
     return parser.parse_args()
 
 
@@ -96,9 +106,9 @@ def test(model: torch.nn.Module,
     for (points_and_features, U_matrices, target) in loader:
 
         points_and_features = points_and_features.to(device)
-        U_matrices = U_matrices.to(device)
+        # U_matrices = U_matrices.to(device)
         # target = target.to(device)
-        preds = model_eval(points_and_features, U_matrices)
+        preds = model_eval(points_and_features)
 
         all_preds.append(preds.cpu())
         all_targets.append(target)
@@ -114,9 +124,11 @@ def main(args):
         logger.info(str)
         print(str)
 
+    write_result_to_file(args.metadata_record_fp, **vars(args))
+
     '''CREATE DIR'''
     timestr = str(datetime.datetime.now().strftime('%Y-%m-%d_%H-%M'))
-    exp_dir = Path('./log/')
+    exp_dir = Path(args.base_log_dir)
     exp_dir.mkdir(exist_ok=True)
     exp_dir = exp_dir.joinpath('regression_QM7')
     exp_dir.mkdir(exist_ok=True)
@@ -173,22 +185,20 @@ def main(args):
     results_logging_fp = os.path.join(exp_dir, 'epoch_results.txt')
 
     '''DECIDE WHICH DEVICE TO TRAIN ON'''
-    bool_use_CUDA = torch.cuda.is_available()
-
     # The following line is copied from https://stackoverflow.com/questions/50954479/using-cuda-with-pytorch
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu")
 
 
     '''COMPILE MODEL AND LOSS FUNCTION'''
-    classifier = model.get_model(n_centroids_1=10,
-                                    msg_radii_1=[2., 4., 8.],
-                                    msg_nsample_1=[4, 8, 16],
-                                    n_centroids_2=4,
-                                    msg_radii_2=[2., 4., 8.],
-                                    msg_nsample_2=[2, 4, 8],
-                                    in_channels=5,
-                                    out_channels=128,
-                                    device=device)
+    classifier = model.PointNet2MSGModel(n_centroids_1=args.n_centroids_1,
+                                            msg_radii_1=args.msg_radii_1,
+                                            msg_nsample_1=args.msg_nsample_1,
+                                            n_centroids_2=args.n_centroids_2,
+                                            msg_radii_2=args.msg_radii_2,
+                                            msg_nsample_2=args.msg_nsample_2,
+                                            in_channels=5,
+                                            out_channels=1)
     classifier.apply(inplace_relu)
     
     criterion = model.get_loss()
@@ -250,12 +260,11 @@ def main(args):
             # points[:, :, 0:3] = provider.shift_point_cloud(points[:, :, 0:3])
             # points = torch.Tensor(points)
 
-            if bool_use_CUDA:
-                points_and_features = points_and_features.cuda()
-                U_matrices = U_matrices.cuda()
-                target = target.cuda()
+            points_and_features = points_and_features.to(device)
+                # U_matrices = U_matrices.cuda()
+            target = target.to(device)
 
-            pred = classifier(points_and_features, U_matrices)
+            pred = classifier(points_and_features)
             loss = criterion(pred, target)
             training_losses.append(loss.cpu().data)
             loss.backward()
@@ -318,6 +327,22 @@ def main(args):
             write_result_to_file(results_logging_fp, **logging_dd)
     logger.info('End of training...')
 
+
+    '''MAKE PLOTS'''
+
+    train_plot_fp = os.path.join(exp_dir, 'training_losses.png')
+    train_plot_title = f"Training losses experiment {args.log_dir}"
+    make_training_progress_plot(results_logging_fp,
+                                train_plot_fp,
+                                train_plot_title)
+
+
+    dset_names = ['train', 'val', 'test']
+    dset_loaders = [train_loader, val_loader, test_loader]
+    for name, loader in zip(dset_names, dset_loaders):
+        title = f"Experiment {args.log_dir} on {name} dataset"
+        plt_fp = os.path.join(exp_dir, f"{name}_predictions.png")
+        make_predictions_plot(classifier, loader, plt_fp, device, title=title)
 
 if __name__ == '__main__':
     args = parse_args()

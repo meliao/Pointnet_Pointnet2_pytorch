@@ -16,7 +16,8 @@ class get_model(nn.Module):
                     msg_radii_2: List[float],
                     msg_nsample_2: List[int],
                     in_channels: int,
-                    out_channels: int):
+                    out_channels: int,
+                    device: torch.device=None):
 
         super(get_model, self).__init__()
         self.out_channels = out_channels
@@ -35,12 +36,18 @@ class get_model(nn.Module):
                                 torch.Tensor([1, -1, -1]),
                                 torch.Tensor([-1, 1, -1]),
                                 torch.Tensor([-1, -1, 1])]
+
+        if device is not None:
+            self.sign_flip_list = [x.to(device) for x in self.sign_flip_list]
+
     def _flip_signs_U_matrix(self, 
                                 U_matrix: torch.Tensor, 
                                 sign_flips: torch.Tensor) -> torch.Tensor:
         # Want to be super explicit about broadcasting here; I want to 
         # flip the signs of the columns of U
         sign_flip_mat = sign_flips.view([-1, 1, 3]).repeat([1, 3, 1])
+        # print("SIGN FLIP MAT DEVICE: ", sign_flip_mat.device)
+        # print("U MAT DEVICE:", U_matrix.device)
         return torch.mul(U_matrix, sign_flip_mat)
         
 
@@ -81,7 +88,7 @@ class get_model(nn.Module):
             torch.Tensor: _description_
         """
         n_batch, n_points, _ = points_and_features.shape
-        out_features = torch.empty(size=(n_batch, 4, self.out_channels))
+        out_features = torch.empty(size=(n_batch, 4, self.out_channels), device=points_and_features.device)
         for i, sign_flip_arr in enumerate(self.sign_flip_list):
             U_matrices_flipped = self._flip_signs_U_matrix(U_matrices, sign_flip_arr)
             aligned_coords = self._align_coords(U_matrices_flipped, points_and_features)
@@ -90,6 +97,9 @@ class get_model(nn.Module):
 
         # LogSumExp pooling
         features = torch.logsumexp(out_features, dim=1) # shape [B, out_channels]
+
+        # print("FEATURES DEVICE", features.device)
+        # print("LINEAR LAYER 1 DEVICE", self.linear_layer_1.device)
 
         features_1 = F.relu(self.linear_layer_1(features))
 
@@ -110,7 +120,6 @@ class PointNet2MSGModel(nn.Module):
                     in_channels: int,
                     out_channels: int):
         super(PointNet2MSGModel, self).__init__()
-        # in_channel = 3 if normal_channel else 0
         self.normal_channel = True
         self.sa1 = PointNetSetAbstractionMsg(n_centroids_1, 
                                                 msg_radii_1, 
@@ -161,9 +170,7 @@ class PointNet2MSGModel(nn.Module):
         x = self.drop1(F.relu(self.bn1(self.fc1(x))))
         x = self.drop2(F.relu(self.bn2(self.fc2(x))))
         x = self.fc3(x)
-        x = F.log_softmax(x, -1)
-
-
+        # x = F.log_softmax(x, -1)
         return x
 
 

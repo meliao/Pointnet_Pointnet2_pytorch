@@ -6,15 +6,17 @@ This repo is implementation for [PointNet](http://openaccess.thecvf.com/content_
 ## Owen's Notes
 
 Starting a jupyter notebook on remote server:
-
+```
+export NODEIP=$(hostname -i)
+export NODEPORT=$(( $RANDOM + 1024 ))
+echo $NODEIP:$NODEPORT
+jupyter-notebook --ip=$NODEIP --port=$NODEPORT --no-browser
+```
 
 Testing: 
 ```
 python -m pytest test/
 ```
-
-
-
 
 
 

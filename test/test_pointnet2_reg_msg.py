@@ -13,6 +13,10 @@ from data_utils.MoleculeDataSet import load_and_align_QM7, PointCloudMoleculeDat
 # sys.path.append(os.path.join(ROOT_DIR, 'models'))
 # model = importlib.import_module('pointnet2_reg_msg')
 
+home_dir = os.path.expanduser('~')
+QM7_FP = os.path.join(home_dir, 'projects/invariant-random-features-code/data/qm7/qm7.mat')
+
+
 class TestPointNet2RegMSG:
     def _start(self) -> None:
         base_dir = os.path.split(os.path.split(os.path.abspath(__file__))[0])[0]
@@ -177,10 +181,10 @@ class TestPointNet2RegMSG:
 
 class TestIntegrationQM7Data:
     def test_integration_0(self) -> None:
-        DATA_FP = '/Users/owen/projects/invariant-random-features-code/data/qm7/qm7.mat'
+        # DATA_FP = '~/projects/invariant-random-features-code/data/qm7/qm7.mat'
         n_train = 100
         n_test = 100
-        train_dset, val_dset, test_dset = load_and_align_QM7(fp=DATA_FP,
+        train_dset, val_dset, test_dset = load_and_align_QM7(fp=QM7_FP,
                                                         n_train=n_train,
                                                         n_test=n_test,
                                                         validation_set_fraction=0.1)
@@ -225,10 +229,10 @@ class TestIntegrationQM7Data:
             loss.backward()
 
     def test_integration_1(self) -> None:
-        DATA_FP = '/Users/owen/projects/invariant-random-features-code/data/qm7/qm7.mat'
+        # DATA_FP = '~/projects/invariant-random-features-code/data/qm7/qm7.mat'
         n_train = 100
         n_test = 100
-        train_dset, val_dset, test_dset = load_and_align_QM7(fp=DATA_FP,
+        train_dset, val_dset, test_dset = load_and_align_QM7(fp=QM7_FP,
                                                         n_train=n_train,
                                                         n_test=n_test,
                                                         validation_set_fraction=0.1)
