@@ -60,6 +60,28 @@ class TestFarthestPointSample:
         assert out[1, 1] < 5
         assert out[1, 2] < 5
 
+    def test_FPS_small_point_cloud(self) -> None:
+        """
+        Tests that the behavior is well-defined when the furthest_point_sampling
+        function is asked for more points than the point cloud contains
+        """
+        in_xyz_arr = np.full((2, 7, 3), np.nan)
+        in_xyz_arr[0, :6] = np.random.normal(size=(6, 3))
+        in_xyz_arr[1, :5] = np.random.normal(size=(5, 3))
+        in_tensor = torch.Tensor(in_xyz_arr)
+
+        out = farthest_point_sample(in_tensor, 20)
+        out_arr = out.numpy()
+
+        out_0 = out_arr[0]
+        out_0_sorted_distinct = np.sort(np.unique(out_0))
+        assert np.allclose(out_0_sorted_distinct, np.arange(6))
+
+
+        out_1 = out_arr[1]
+        out_1_sorted_distinct = np.sort(np.unique(out_1))
+        assert np.allclose(out_1_sorted_distinct, np.arange(5))
+
 
 class TestSampleAndGroupAll:
     def test_0(self) -> None:

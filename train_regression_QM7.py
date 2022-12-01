@@ -224,7 +224,7 @@ def main(args):
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.7)
     global_epoch = 0
     global_step = 0
-    best_val_MSE = torch.inf
+    best_val_MSE = torch.Tensor(np.inf)
     # best_class_acc = 0.0
 
     '''TRANING'''
