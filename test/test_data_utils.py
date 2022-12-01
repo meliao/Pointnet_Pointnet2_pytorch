@@ -17,8 +17,9 @@ class TestMoleculeDataSet:
                             [7, 7, 1, 0, 0]])
         
         energies = np.random.normal(size=2)
+        idxes = np.arange(2)
         
-        x = PointCloudMoleculeDataSet(coords, charges, energies)
+        x = PointCloudMoleculeDataSet(coords, charges, energies, idxes)
         
         x.align_coords_cart()
         x.charges_to_one_hot_QM7()

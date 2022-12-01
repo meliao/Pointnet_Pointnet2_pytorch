@@ -63,7 +63,8 @@ def index_points(points: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
 
 def farthest_point_sample(xyz: torch.Tensor, npoint: int) -> torch.Tensor:
     """
-    Uses a farthest point sampling scheme to downsample the point cloud
+    Uses a farthest point sampling scheme to downsample the point cloud.
+    This is deterministic.
     Input:
         xyz (torch.Tensor): pointcloud data, has shape [B, N, 3]
         npoint: number of samples
@@ -73,14 +74,28 @@ def farthest_point_sample(xyz: torch.Tensor, npoint: int) -> torch.Tensor:
     # print(xyz.shape)
     device = xyz.device
     B, N, C = xyz.shape
+    point_norms = torch.linalg.norm(xyz, dim=-1) # shape B, N
+
+    norm_sort_obj = torch.sort(point_norms, descending=False)
+    n_atoms = torch.sum(torch.logical_not(torch.isnan(norm_sort_obj[0])), dim=-1)
+
+
+    # Initial point is the one nearest to the origin
+    farthest = norm_sort_obj[1][:, 0]
+
+
+
     centroids = torch.zeros(B, npoint, dtype=torch.long).to(device)
     distance = torch.ones(B, N).to(device) * 1e10
+
+
+    # centroids = torch.full((B, npoint), -1, dtype=torch.long).to(device)
     
     # Prevent the initial choice from being a NaNed Out Row
-    n_points_in_cloud = torch.sum(torch.logical_not(torch.isnan(xyz[:, :, 0])), axis=1)
-    rand_draws = torch.rand(size=(B,)).to(device)
-    scaled_rand_draws = torch.mul(n_points_in_cloud, rand_draws)
-    farthest = torch.floor(scaled_rand_draws).type(torch.long)
+    # n_points_in_cloud = torch.sum(torch.logical_not(torch.isnan(xyz[:, :, 0])), axis=1)
+    # rand_draws = torch.rand(size=(B,)).to(device)
+    # scaled_rand_draws = torch.mul(n_points_in_cloud, rand_draws)
+    # farthest = torch.floor(scaled_rand_draws).type(torch.long)
     
     batch_indices = torch.arange(B, dtype=torch.long).to(device)
     for i in range(npoint):
@@ -332,7 +347,8 @@ class PointNetSetAbstractionMsg(nn.Module):
         B, N, C = xyz.shape
         S = self.npoint
 
-        # Use farthest point sampling to identify npoint centriods
+        # Use farthest point sampling to identify npoint centriods. From now on, S is a 
+        # proxy for min{S, N_S}
         centroid_idx = farthest_point_sample(xyz, S)
         new_xyz = index_points(xyz, centroid_idx) # Shape [B, S, C]
 

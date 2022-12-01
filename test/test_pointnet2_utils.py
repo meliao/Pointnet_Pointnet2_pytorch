@@ -25,18 +25,21 @@ class TestFarthestPointSample:
 
 
     def test_FPS_simple_input_with_nans(self) -> None:
+        """
+        Input has three points
+        """
         in_arr = np.array([[[0, 0, 1], # 0
                         [0, 0, 1.1], # 1
-                        [1, 0, 0], # 2
+                        [2, 0, 0], # 2
                         [np.nan, np.nan, np.nan]]]) # 3
         in_tensor = torch.Tensor(in_arr)
         print(in_tensor.shape)
-        out = farthest_point_sample(in_tensor, 2)
-        print("OUT", out)
-        if out[0, 0] in [0, 1]:
-            assert out[0, 1] == 2
-        else:
-            assert out[0, 1] == 1
+        out = farthest_point_sample(in_tensor, 3)
+
+        assert out[0, 0] == 0
+        assert out[0, 1] == 2
+        assert out[0, 2] == 1
+
 
     def test_FPS_random_input_NaNs(self) -> None:
         """
@@ -77,10 +80,13 @@ class TestFarthestPointSample:
         out_0_sorted_distinct = np.sort(np.unique(out_0))
         assert np.allclose(out_0_sorted_distinct, np.arange(6))
 
-
+        # assert out_arr[0, 7] == -1
+        
         out_1 = out_arr[1]
         out_1_sorted_distinct = np.sort(np.unique(out_1))
         assert np.allclose(out_1_sorted_distinct, np.arange(5))
+
+
 
 
 class TestSampleAndGroupAll:

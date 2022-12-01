@@ -19,6 +19,11 @@ python -m pytest test/
 ```
 
 
+Setting up conda env on TTIC
+```
+conda create -p /share/data/willett-group/meliao/conda_envs/pointnet2 pytorch==1.12.1 cudatoolkit=10.2 numpy scipy matplotlib -c pytorch
+conda create -p /share/data/willett-group/meliao/conda_envs/pointnet2 pytorch cudatoolkit=10.2 numpy scipy matplotlib -c pytorch
+```
 
 
 
