@@ -179,7 +179,7 @@ class get_loss(nn.Module):
         super(get_loss, self).__init__()
 
     def forward(self, pred, target):
-        return torch.mean(torch.square(pred - target))
+        return torch.mean(torch.square(pred.flatten() - target.flatten()))
 
 
 

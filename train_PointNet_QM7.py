@@ -36,6 +36,7 @@ def parse_args():
     parser.add_argument('--metadata_record_fp', help='Where to store a txt file of all of the arguments')
     parser.add_argument('--log_dir', type=str, default=None, help='experiment root')
     parser.add_argument('--base_log_dir', type=str, default='./log/')
+    parser.add_argument('--save_weights_every_epoch', default=False, action='store_true')
 
     # Training/testing set sizes
     parser.add_argument('--n_train', type=int)
@@ -201,7 +202,7 @@ def main(args):
                                             out_channels=1)
     model.apply(inplace_relu)
     
-    loss_fn = model.get_loss()
+    loss_fn = module.get_loss()
     
 
     '''MOVE EVERYTHING TO THE CORRECT DEVICE'''
@@ -241,8 +242,16 @@ def main(args):
     logger.info('Start training...')
     for epoch in range(start_epoch, args.epoch):
         log_string('Epoch %d (%d/%s):' % (global_epoch + 1, epoch + 1, args.epoch))
-        # mean_correct = []
-        classifier = classifier.train()
+        
+        if args.save_weights_every_epoch:
+            state_dd = {
+                'epoch': epoch,
+                'model_state_dict': model.state_dict()
+            }
+            save_fp = os.path.join(checkpoints_dir, f'epoch_{epoch}.pth')
+            torch.save(state_dd, save_fp)
+
+        model.train()
 
         training_losses = []
         # for batch_id, (points, features, target) in tqdm(enumerate(train_loader, 0), total=len(train_loader), smoothing=0.9):
@@ -264,8 +273,8 @@ def main(args):
                 # U_matrices = U_matrices.cuda()
             target = target.to(device)
 
-            pred = classifier(points_and_features)
-            loss = criterion(pred, target)
+            pred = model(points_and_features)
+            loss = loss_fn(pred, target)
             training_losses.append(loss.cpu().data)
             loss.backward()
             optimizer.step()
@@ -278,11 +287,10 @@ def main(args):
         scheduler.step()
 
         with torch.no_grad():
-            val_MSE = test(classifier.eval(), val_loader, criterion, device)
+            val_MSE = test(model.eval(), val_loader, loss_fn, device)
             log_string('Train MSE: %f. Val MSE: %f' % (train_MSE_for_epoch, val_MSE))
-            # instance_acc, class_acc = test(classifier.eval(), testDataLoader, num_class=num_class)
 
-            test_MSE = test(classifier.eval(), test_loader, criterion, device)
+            test_MSE = test(model.eval(), test_loader, loss_fn, device)
 
 
 
@@ -308,7 +316,7 @@ def main(args):
                     'train_idxes': train_dset.idxes,
                     'val_idxes': val_dset.idxes,
                     'test_idxes': test_dset.idxes,
-                    'model_state_dict': classifier.state_dict(),
+                    'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
                 }
                 torch.save(state, savepath)
@@ -342,7 +350,7 @@ def main(args):
     for name, loader in zip(dset_names, dset_loaders):
         title = f"Experiment {args.log_dir} on {name} dataset"
         plt_fp = os.path.join(exp_dir, f"{name}_predictions.png")
-        make_predictions_plot(classifier, loader, plt_fp, device, title=title)
+        make_predictions_plot(model, loader, plt_fp, device, title=title)
 
 if __name__ == '__main__':
     args = parse_args()
