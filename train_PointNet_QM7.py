@@ -175,7 +175,7 @@ def main(args):
     # testDataLoader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=10)
 
     '''MODEL LOADING'''
-    model = importlib.import_module('pointnet2_reg_msg')
+    module = importlib.import_module('pointnet2_reg_msg')
 
     '''Copy the effective files into the log directory. Im not sure how I feel about this...'''
     shutil.copy('./data_utils/MoleculeDataSet.py', str(exp_dir))
@@ -191,7 +191,7 @@ def main(args):
 
 
     '''COMPILE MODEL AND LOSS FUNCTION'''
-    classifier = model.PointNet2MSGModel(n_centroids_1=args.n_centroids_1,
+    model = module.PointNet2MSGModel(n_centroids_1=args.n_centroids_1,
                                             msg_radii_1=args.msg_radii_1,
                                             msg_nsample_1=args.msg_nsample_1,
                                             n_centroids_2=args.n_centroids_2,
@@ -199,22 +199,22 @@ def main(args):
                                             msg_nsample_2=args.msg_nsample_2,
                                             in_channels=5,
                                             out_channels=1)
-    classifier.apply(inplace_relu)
+    model.apply(inplace_relu)
     
-    criterion = model.get_loss()
+    loss_fn = model.get_loss()
     
 
     '''MOVE EVERYTHING TO THE CORRECT DEVICE'''
 
-    classifier = classifier.to(device)
-    criterion = criterion.to(device)
+    model.to(device)
+    loss_fn.to(device)
 
 
 
     try:
         checkpoint = torch.load(str(exp_dir) + '/checkpoints/best_model.pth')
         start_epoch = checkpoint['epoch']
-        classifier.load_state_dict(checkpoint['model_state_dict'])
+        model.load_state_dict(checkpoint['model_state_dict'])
         log_string('Use pretrain model')
     except FileNotFoundError:
         log_string('No existing model, starting training from scratch...')
@@ -222,14 +222,14 @@ def main(args):
 
     if args.optimizer == 'Adam':
         optimizer = torch.optim.Adam(
-            classifier.parameters(),
+            model.parameters(),
             lr=args.learning_rate,
             betas=(0.9, 0.999),
             eps=1e-08,
             weight_decay=args.decay_rate
         )
     else:
-        optimizer = torch.optim.SGD(classifier.parameters(), lr=0.01, momentum=0.9)
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
 
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.7)
     global_epoch = 0
